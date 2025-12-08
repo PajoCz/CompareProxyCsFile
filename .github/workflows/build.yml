@@ -15,10 +15,10 @@ jobs:
         dotnet-version: ['8.0.x']
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ matrix.dotnet-version }}
     
@@ -31,8 +31,8 @@ jobs:
       working-directory: ./CompareProxyCsFile
     
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: matrix.os == 'windows-latest'
       with:
-        name: CompareProxyCsFile-${{ matrix.os }}
+        name: CompareProxyCsFile-windows
         path: ./CompareProxyCsFile/bin/Release/net8.0/
