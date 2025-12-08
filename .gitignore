@@ -1,0 +1,50 @@
+# Ignore build outputs
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+
+# Ignore user-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Ignore Visual Studio cache/options
+.vs/
+.vscode/
+
+# Ignore Rider cache
+.idea/
+
+# Ignore NuGet packages
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+
+# Ignore test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# Ignore comparison reports (optional - uncomment if you don't want to track them)
+# ProxyComparison_*.txt
+# ProxyComparison_ERROR_*.txt
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore ReSharper
+_ReSharper*/
+*.ReSharper
+
+# Ignore NCrunch
+*.ncrunch*
+.*crunch*.local.xml
+
+# Ignore dotCover
+*.dotCover

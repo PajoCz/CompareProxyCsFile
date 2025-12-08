@@ -1,0 +1,38 @@
+name: .NET Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        dotnet-version: ['8.0.x']
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: ${{ matrix.dotnet-version }}
+    
+    - name: Restore dependencies
+      run: dotnet restore
+      working-directory: ./CompareProxyCsFile
+    
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+      working-directory: ./CompareProxyCsFile
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      if: matrix.os == 'windows-latest'
+      with:
+        name: CompareProxyCsFile-${{ matrix.os }}
+        path: ./CompareProxyCsFile/bin/Release/net8.0/

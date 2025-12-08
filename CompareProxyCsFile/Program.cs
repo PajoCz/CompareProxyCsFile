@@ -1,0 +1,489 @@
+﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Text;
+
+if (args.Length != 2)
+{
+    Console.WriteLine("Usage: CompareProxyCsFile <file1.cs> <file2.cs>");
+    return 1;
+}
+
+string file1Path = args[0];
+string file2Path = args[1];
+
+if (!File.Exists(file1Path))
+{
+    Console.WriteLine($"Error: File not found: {file1Path}");
+    return 1;
+}
+
+if (!File.Exists(file2Path))
+{
+    Console.WriteLine($"Error: File not found: {file2Path}");
+    return 1;
+}
+
+try
+{
+    string content1 = File.ReadAllText(file1Path);
+    string content2 = File.ReadAllText(file2Path);
+
+    var types1 = ProxyComparer.ParseTypes(content1);
+    var types2 = ProxyComparer.ParseTypes(content2);
+
+    var differences = ProxyComparer.CompareTypes(types1, types2);
+
+    // Generate output file with timestamp
+    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+    var outputFileName = $"ProxyComparison_{timestamp}.txt";
+    
+    var output = new StringBuilder();
+    output.AppendLine("=".PadRight(80, '='));
+    output.AppendLine("PROXY FILES COMPARISON REPORT");
+    output.AppendLine("=".PadRight(80, '='));
+    output.AppendLine();
+    output.AppendLine($"Date and Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+    output.AppendLine();
+    output.AppendLine($"File 1: {Path.GetFullPath(file1Path)}");
+    output.AppendLine($"File 2: {Path.GetFullPath(file2Path)}");
+    output.AppendLine();
+    output.AppendLine("=".PadRight(80, '='));
+    output.AppendLine();
+
+    if (!differences.Any())
+    {
+        output.AppendLine("RESULT: Files are semantically identical.");
+        output.AppendLine();
+        output.AppendLine("No differences found in:");
+        output.AppendLine("  - Type definitions (classes, interfaces, enums)");
+        output.AppendLine("  - Type members (methods, properties, fields)");
+        output.AppendLine("  - Attributes (excluding generator version numbers)");
+        output.AppendLine("  - Base types and interfaces");
+        
+        Console.WriteLine("Files are semantically identical.");
+    }
+    else
+    {
+        output.AppendLine("RESULT: Differences found");
+        output.AppendLine();
+        output.AppendLine($"Total differences: {differences.Count}");
+        output.AppendLine();
+        output.AppendLine("=".PadRight(80, '='));
+        output.AppendLine("DETAILED DIFFERENCES:");
+        output.AppendLine("=".PadRight(80, '='));
+        output.AppendLine();
+        
+        foreach (var diff in differences)
+        {
+            output.AppendLine(diff);
+        }
+        
+        Console.WriteLine($"Differences found: {differences.Count}");
+    }
+    
+    output.AppendLine();
+    output.AppendLine("=".PadRight(80, '='));
+    output.AppendLine("END OF REPORT");
+    output.AppendLine("=".PadRight(80, '='));
+    
+    File.WriteAllText(outputFileName, output.ToString(), Encoding.UTF8);
+    
+    Console.WriteLine($"Report saved to: {Path.GetFullPath(outputFileName)}");
+    
+    return differences.Any() ? 1 : 0;
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Error: {ex.Message}");
+    
+    // Write error report
+    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+    var errorFileName = $"ProxyComparison_ERROR_{timestamp}.txt";
+    var errorOutput = new StringBuilder();
+    errorOutput.AppendLine("=".PadRight(80, '='));
+    errorOutput.AppendLine("PROXY FILES COMPARISON - ERROR REPORT");
+    errorOutput.AppendLine("=".PadRight(80, '='));
+    errorOutput.AppendLine();
+    errorOutput.AppendLine($"Date and Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+    errorOutput.AppendLine();
+    errorOutput.AppendLine($"Error: {ex.Message}");
+    errorOutput.AppendLine();
+    errorOutput.AppendLine("Stack Trace:");
+    errorOutput.AppendLine(ex.StackTrace);
+    
+    File.WriteAllText(errorFileName, errorOutput.ToString(), Encoding.UTF8);
+    Console.WriteLine($"Error report saved to: {Path.GetFullPath(errorFileName)}");
+    
+    return 1;
+}
+
+enum TypeKind
+{
+    Interface,
+    Class,
+    Enum
+}
+
+enum MemberKind
+{
+    Method,
+    Property,
+    Field
+}
+
+class TypeInfo
+{
+    public string Name { get; set; } = "";
+    public TypeKind Kind { get; set; }
+    public List<AttributeInfo> Attributes { get; set; } = new();
+    public List<MemberInfo> Members { get; set; } = new();
+    public List<string> BaseTypes { get; set; } = new();
+    public List<string> EnumMembers { get; set; } = new();
+}
+
+class AttributeInfo
+{
+    public string Name { get; set; } = "";
+    public List<string> Arguments { get; set; } = new();
+    
+    public override string ToString()
+    {
+        if (Arguments.Any())
+            return $"{Name}({string.Join(", ", Arguments)})";
+        return Name;
+    }
+}
+
+class MemberInfo
+{
+    public MemberKind Kind { get; set; }
+    public string Name { get; set; } = "";
+    public string ReturnType { get; set; } = "";
+    public List<string> Parameters { get; set; } = new();
+    public List<AttributeInfo> Attributes { get; set; } = new();
+    
+    public string GetSignature()
+    {
+        var sb = new StringBuilder();
+        sb.Append(Kind.ToString());
+        sb.Append(" ");
+        sb.Append(ReturnType);
+        sb.Append(" ");
+        sb.Append(Name);
+        
+        if (Parameters.Any())
+        {
+            sb.Append("(");
+            sb.Append(string.Join(", ", Parameters));
+            sb.Append(")");
+        }
+        
+        return sb.ToString();
+    }
+}
+
+static class ProxyComparer
+{
+    public static Dictionary<string, TypeInfo> ParseTypes(string sourceCode)
+    {
+        var tree = CSharpSyntaxTree.ParseText(sourceCode);
+        var root = tree.GetRoot() as CompilationUnitSyntax;
+        
+        var types = new Dictionary<string, TypeInfo>();
+
+        // Extract interfaces
+        foreach (var interfaceDecl in root!.DescendantNodes().OfType<InterfaceDeclarationSyntax>())
+        {
+            var typeInfo = new TypeInfo
+            {
+                Name = GetFullTypeName(interfaceDecl),
+                Kind = TypeKind.Interface,
+                Attributes = ExtractAttributes(interfaceDecl.AttributeLists),
+                Members = ExtractMembers(interfaceDecl.Members)
+            };
+            types[typeInfo.Name] = typeInfo;
+        }
+
+        // Extract classes
+        foreach (var classDecl in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
+        {
+            var typeInfo = new TypeInfo
+            {
+                Name = GetFullTypeName(classDecl),
+                Kind = TypeKind.Class,
+                Attributes = ExtractAttributes(classDecl.AttributeLists),
+                Members = ExtractMembers(classDecl.Members),
+                BaseTypes = classDecl.BaseList?.Types.Select(t => t.ToString()).ToList() ?? new List<string>()
+            };
+            types[typeInfo.Name] = typeInfo;
+        }
+
+        // Extract enums
+        foreach (var enumDecl in root.DescendantNodes().OfType<EnumDeclarationSyntax>())
+        {
+            var typeInfo = new TypeInfo
+            {
+                Name = GetFullTypeName(enumDecl),
+                Kind = TypeKind.Enum,
+                Attributes = ExtractAttributes(enumDecl.AttributeLists),
+                EnumMembers = enumDecl.Members.Select(m => m.Identifier.Text).ToList()
+            };
+            types[typeInfo.Name] = typeInfo;
+        }
+
+        return types;
+    }
+
+    static string GetFullTypeName(BaseTypeDeclarationSyntax typeDecl)
+    {
+        var namespaceDecl = typeDecl.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().FirstOrDefault();
+        var namespaceName = namespaceDecl?.Name.ToString() ?? "";
+        
+        if (string.IsNullOrEmpty(namespaceName))
+            return typeDecl.Identifier.Text;
+        
+        return $"{namespaceName}.{typeDecl.Identifier.Text}";
+    }
+
+    static List<AttributeInfo> ExtractAttributes(SyntaxList<AttributeListSyntax> attributeLists)
+    {
+        var attributes = new List<AttributeInfo>();
+        
+        foreach (var attrList in attributeLists)
+        {
+            foreach (var attr in attrList.Attributes)
+            {
+                var name = attr.Name.ToString();
+                
+                // Normalize GeneratedCodeAttribute by removing version parameter
+                if (name.Contains("GeneratedCode") || name.Contains("GeneratedCodeAttribute"))
+                {
+                    var args = attr.ArgumentList?.Arguments.Select(a => a.ToString()).ToList() ?? new List<string>();
+                    // Keep only the first argument (tool name), ignore version
+                    attributes.Add(new AttributeInfo 
+                    { 
+                        Name = name, 
+                        Arguments = args.Take(1).ToList() 
+                    });
+                }
+                else
+                {
+                    var args = attr.ArgumentList?.Arguments.Select(a => a.ToString()).ToList() ?? new List<string>();
+                    attributes.Add(new AttributeInfo { Name = name, Arguments = args });
+                }
+            }
+        }
+        
+        return attributes;
+    }
+
+    static List<MemberInfo> ExtractMembers(SyntaxList<MemberDeclarationSyntax> members)
+    {
+        var memberInfos = new List<MemberInfo>();
+        
+        foreach (var member in members)
+        {
+            var memberInfo = new MemberInfo();
+            
+            switch (member)
+            {
+                case MethodDeclarationSyntax method:
+                    memberInfo.Kind = MemberKind.Method;
+                    memberInfo.Name = method.Identifier.Text;
+                    memberInfo.ReturnType = method.ReturnType.ToString();
+                    memberInfo.Parameters = method.ParameterList.Parameters
+                        .Select(p => $"{p.Type} {p.Identifier.Text}").ToList();
+                    memberInfo.Attributes = ExtractAttributes(method.AttributeLists);
+                    break;
+                    
+                case PropertyDeclarationSyntax property:
+                    memberInfo.Kind = MemberKind.Property;
+                    memberInfo.Name = property.Identifier.Text;
+                    memberInfo.ReturnType = property.Type.ToString();
+                    memberInfo.Attributes = ExtractAttributes(property.AttributeLists);
+                    break;
+                    
+                case FieldDeclarationSyntax field:
+                    memberInfo.Kind = MemberKind.Field;
+                    memberInfo.ReturnType = field.Declaration.Type.ToString();
+                    memberInfo.Name = string.Join(", ", field.Declaration.Variables.Select(v => v.Identifier.Text));
+                    memberInfo.Attributes = ExtractAttributes(field.AttributeLists);
+                    break;
+                    
+                default:
+                    continue;
+            }
+            
+            memberInfos.Add(memberInfo);
+        }
+        
+        return memberInfos;
+    }
+
+    public static List<string> CompareTypes(Dictionary<string, TypeInfo> types1, Dictionary<string, TypeInfo> types2)
+    {
+        var differences = new List<string>();
+        
+        // Find types only in file1
+        foreach (var type1 in types1)
+        {
+            if (!types2.ContainsKey(type1.Key))
+            {
+                differences.Add($"- Type removed: {type1.Key}");
+            }
+        }
+        
+        // Find types only in file2
+        foreach (var type2 in types2)
+        {
+            if (!types1.ContainsKey(type2.Key))
+            {
+                differences.Add($"+ Type added: {type2.Key}");
+            }
+        }
+        
+        // Compare common types
+        foreach (var type1 in types1)
+        {
+            if (types2.TryGetValue(type1.Key, out var type2))
+            {
+                var typeDiffs = CompareTypeInfo(type1.Key, type1.Value, type2);
+                differences.AddRange(typeDiffs);
+            }
+        }
+        
+        return differences;
+    }
+
+    static List<string> CompareTypeInfo(string typeName, TypeInfo type1, TypeInfo type2)
+    {
+        var differences = new List<string>();
+        
+        if (type1.Kind != type2.Kind)
+        {
+            differences.Add($"  Type kind changed in {typeName}: {type1.Kind} -> {type2.Kind}");
+        }
+        
+        // Compare attributes
+        var attrDiffs = CompareAttributes(type1.Attributes, type2.Attributes);
+        if (attrDiffs.Any())
+        {
+            differences.Add($"  Attributes differ in {typeName}:");
+            differences.AddRange(attrDiffs.Select(d => $"    {d}"));
+        }
+        
+        // Compare base types for classes
+        if (type1.Kind == TypeKind.Class)
+        {
+            var baseDiffs = CompareStringLists(type1.BaseTypes, type2.BaseTypes);
+            if (baseDiffs.Any())
+            {
+                differences.Add($"  Base types differ in {typeName}:");
+                differences.AddRange(baseDiffs.Select(d => $"    {d}"));
+            }
+        }
+        
+        // Compare enum members
+        if (type1.Kind == TypeKind.Enum)
+        {
+            var enumDiffs = CompareStringLists(type1.EnumMembers, type2.EnumMembers);
+            if (enumDiffs.Any())
+            {
+                differences.Add($"  Enum members differ in {typeName}:");
+                differences.AddRange(enumDiffs.Select(d => $"    {d}"));
+            }
+        }
+        
+        // Compare members (methods, properties, fields)
+        if (type1.Kind != TypeKind.Enum)
+        {
+            var memberDiffs = CompareMembers(typeName, type1.Members, type2.Members);
+            differences.AddRange(memberDiffs);
+        }
+        
+        return differences;
+    }
+
+    static List<string> CompareAttributes(List<AttributeInfo> attrs1, List<AttributeInfo> attrs2)
+    {
+        var differences = new List<string>();
+        
+        var set1 = new HashSet<string>(attrs1.Select(a => a.ToString()));
+        var set2 = new HashSet<string>(attrs2.Select(a => a.ToString()));
+        
+        foreach (var attr in set1.Except(set2))
+        {
+            differences.Add($"- Attribute removed: {attr}");
+        }
+        
+        foreach (var attr in set2.Except(set1))
+        {
+            differences.Add($"+ Attribute added: {attr}");
+        }
+        
+        return differences;
+    }
+
+    static List<string> CompareStringLists(List<string> list1, List<string> list2)
+    {
+        var differences = new List<string>();
+        
+        var set1 = new HashSet<string>(list1);
+        var set2 = new HashSet<string>(list2);
+        
+        foreach (var item in set1.Except(set2))
+        {
+            differences.Add($"- Removed: {item}");
+        }
+        
+        foreach (var item in set2.Except(set1))
+        {
+            differences.Add($"+ Added: {item}");
+        }
+        
+        return differences;
+    }
+
+    static List<string> CompareMembers(string typeName, List<MemberInfo> members1, List<MemberInfo> members2)
+    {
+        var differences = new List<string>();
+        
+        var dict1 = members1.ToDictionary(m => m.GetSignature(), m => m);
+        var dict2 = members2.ToDictionary(m => m.GetSignature(), m => m);
+        
+        // Members only in file1
+        foreach (var member1 in dict1)
+        {
+            if (!dict2.ContainsKey(member1.Key))
+            {
+                differences.Add($"  - Member removed in {typeName}: {member1.Value.GetSignature()}");
+            }
+        }
+        
+        // Members only in file2
+        foreach (var member2 in dict2)
+        {
+            if (!dict1.ContainsKey(member2.Key))
+            {
+                differences.Add($"  + Member added in {typeName}: {member2.Value.GetSignature()}");
+            }
+        }
+        
+        // Compare common members
+        foreach (var member1 in dict1)
+        {
+            if (dict2.TryGetValue(member1.Key, out var member2))
+            {
+                var attrDiffs = CompareAttributes(member1.Value.Attributes, member2.Attributes);
+                if (attrDiffs.Any())
+                {
+                    differences.Add($"    Attributes differ for member {member1.Key} in {typeName}:");
+                    differences.AddRange(attrDiffs.Select(d => $"      {d}"));
+                }
+            }
+        }
+        
+        return differences;
+    }
+}
