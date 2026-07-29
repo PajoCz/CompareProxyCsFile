@@ -35,8 +35,11 @@ try
     var differences = ProxyComparer.CompareTypes(types1, types2);
 
     // Generate output file with timestamp
-    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-    var outputFileName = $"ProxyComparison_{timestamp}.txt";
+    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_ffffff");
+    var serviceName = GetServiceNameFromPath(file2Path) ?? GetServiceNameFromPath(file1Path);
+    var outputFileName = string.IsNullOrEmpty(serviceName)
+        ? $"ProxyComparison_{timestamp}.txt"
+        : $"ProxyComparison_{timestamp}_{serviceName}.txt";
     
     var output = new StringBuilder();
     output.AppendLine("=".PadRight(80, '='));
@@ -122,6 +125,35 @@ catch (Exception ex)
     Console.WriteLine($"Error report saved to: {Path.GetFullPath(errorFileName)}");
     
     return 1;
+}
+
+// Pokusí se z cesty k souboru dohledat název service reference tak, že najde
+// složku "Connected Services" (případně variantu typu "Connected Services - kopie")
+// a vrátí název složky, která následuje hned za ní (to je název service).
+// Příklad cesty:
+//   D:\D3DevTr\...\Connected Services - kopie\CdsGasService\Reference.cs
+// Segmenty cesty: [..., "Connected Services - kopie", "CdsGasService", "Reference.cs"]
+// Metoda najde segment "Connected Services - kopie" a vrátí následující segment "CdsGasService".
+// Pokud se "Connected Services" ve cestě nenajde, nebo je hned poslední složkou před souborem
+// bez další podsložky, vrátí null.
+static string? GetServiceNameFromPath(string filePath)
+{
+    var fullPath = Path.GetFullPath(filePath);
+    var parts = fullPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    for (int i = 0; i < parts.Length; i++)
+    {
+        if (parts[i].Equals("Connected Services", StringComparison.OrdinalIgnoreCase)
+            || parts[i].StartsWith("Connected Services ", StringComparison.OrdinalIgnoreCase))
+        {
+            if (i + 1 < parts.Length - 1)
+            {
+                return parts[i + 1];
+            }
+        }
+    }
+
+    return null;
 }
 
 enum TypeKind
