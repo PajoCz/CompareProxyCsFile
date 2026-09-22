@@ -38,6 +38,18 @@ TestResults/
 .DS_Store
 Thumbs.db
 
+# Ignore Python runtime files
+__pycache__/
+*.py[cod]
+
+# Ignore OTE WSDL monitor state
+OteWsdlMonitor/wsdl_links.json
+OteWsdlMonitor/*.test.json
+OteWsdlMonitor/DotNet/wsdl_links.json
+OteWsdlMonitor/DotNet/*.test.json
+OteWsdlMonitor/DotNet/secrets/
+OteWsdlMonitor/DotNet/*.dpapi
+
 # Ignore ReSharper
 _ReSharper*/
 *.ReSharper
