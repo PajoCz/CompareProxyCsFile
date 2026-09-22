@@ -1,3 +1,7 @@
 <Solution>
+  <Folder Name="/OteWsdlMonitor/" />
+  <Folder Name="/OteWsdlMonitor/DotNet/">
+    <Project Path="OteWsdlMonitor/DotNet/OteWsdlMonitor.csproj" />
+  </Folder>
   <Project Path="CompareProxyCsFile/CompareProxyCsFile.csproj" />
 </Solution>
